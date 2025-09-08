@@ -92,15 +92,25 @@ async def process_pdfs(
         if not pdf_files:
             return {"error": "No valid PDF files uploaded"}
         
-        # Merge PDFs
-        merger = PdfMerger()
-        for pdf_file in pdf_files:
-            merger.append(str(pdf_file))
-        
-        # Save merged PDF
-        merged_path = temp_dir / "merged.pdf"
-        merger.write(str(merged_path))
-        merger.close()
+        # Merge PDFs if multiple, or just use single file
+        if len(pdf_files) == 1:
+            # Single file, just copy it
+            merged_path = temp_dir / "merged.pdf"
+            shutil.copy2(pdf_files[0], merged_path)
+        else:
+            # Multiple files, merge them
+            merger = PdfMerger()
+            for pdf_file in pdf_files:
+                try:
+                    merger.append(str(pdf_file))
+                except Exception as e:
+                    print(f"Error merging {pdf_file}: {e}")
+                    continue
+            
+            # Save merged PDF
+            merged_path = temp_dir / "merged.pdf"
+            merger.write(str(merged_path))
+            merger.close()
         
         # Check if merged file exists and has content
         if not merged_path.exists() or merged_path.stat().st_size == 0:
@@ -113,6 +123,14 @@ async def process_pdfs(
         def compress_pdf(input_path, output_path, quality):
             # Try to find gs in different locations
             gs_path = shutil.which("gs") or shutil.which("ghostscript") or "/usr/bin/gs"
+            
+            # Verify Ghostscript exists
+            if not gs_path or not os.path.exists(gs_path):
+                print(f"Ghostscript not found at {gs_path}")
+                # If no Ghostscript, just copy the file
+                shutil.copy2(input_path, output_path)
+                return
+            
             cmd = [
                 gs_path,
                 "-sDEVICE=pdfwrite",
@@ -121,6 +139,8 @@ async def process_pdfs(
                 "-dNOPAUSE",
                 "-dQUIET",
                 "-dBATCH",
+                "-dPrinted=false",
+                "-dSAFER",
                 f"-sOutputFile={output_path}",
                 str(input_path)
             ]
@@ -129,7 +149,8 @@ async def process_pdfs(
             if result.returncode != 0:
                 print(f"Ghostscript stderr: {result.stderr}")
                 print(f"Ghostscript stdout: {result.stdout}")
-                raise Exception(f"Ghostscript error: {result.stderr}")
+                # If compression fails, copy original
+                shutil.copy2(input_path, output_path)
         
         # Try /ebook first
         compress_pdf(merged_path, compressed_path, "ebook")
@@ -141,11 +162,23 @@ async def process_pdfs(
         
         # Verify compressed file exists
         if not compressed_path.exists():
-            return {"error": "Failed to compress PDF"}
+            print("Compressed file doesn't exist, using merged file")
+            compressed_path = merged_path
+        
+        # Verify file has content
+        file_size = compressed_path.stat().st_size
+        if file_size == 0:
+            return {"error": "Compressed PDF is empty"}
+        
+        print(f"Sending PDF file: {compressed_path}, size: {file_size} bytes")
         
         # Read the compressed PDF into memory
         with open(compressed_path, 'rb') as f:
             pdf_content = f.read()
+        
+        # Verify content was read
+        if not pdf_content:
+            return {"error": "Failed to read PDF content"}
         
         # Schedule cleanup for after response is sent
         background_tasks.add_task(cleanup_temp_dir, temp_dir)
@@ -156,7 +189,8 @@ async def process_pdfs(
             media_type="application/pdf",
             headers={
                 "Content-Disposition": "attachment; filename=compressed.pdf",
-                "Content-Length": str(len(pdf_content))
+                "Content-Length": str(len(pdf_content)),
+                "Cache-Control": "no-cache"
             }
         )
         
