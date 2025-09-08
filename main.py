@@ -8,6 +8,7 @@ import os
 import subprocess
 from pathlib import Path
 from PyPDF2 import PdfMerger
+import shutil
 
 app = FastAPI()
 
@@ -26,7 +27,14 @@ async def serve_index():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok"}
+    # Check if Ghostscript is available
+    gs_path = shutil.which("gs") or shutil.which("ghostscript")
+    gs_available = gs_path is not None
+    return {
+        "status": "ok",
+        "ghostscript_available": gs_available,
+        "ghostscript_path": gs_path
+    }
 
 @app.post("/process")
 async def process_pdfs(
@@ -88,7 +96,6 @@ async def process_pdfs(
         # Function to compress with specific quality setting
         def compress_pdf(input_path, output_path, quality):
             # Try to find gs in different locations
-            import shutil
             gs_path = shutil.which("gs") or shutil.which("ghostscript") or "/usr/bin/gs"
             cmd = [
                 gs_path,
