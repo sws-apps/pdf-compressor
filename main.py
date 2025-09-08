@@ -1,5 +1,5 @@
-from fastapi import FastAPI, File, UploadFile, Form
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import FastAPI, File, UploadFile, Form, BackgroundTasks
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
@@ -9,6 +9,7 @@ import subprocess
 from pathlib import Path
 from PyPDF2 import PdfMerger
 import shutil
+import io
 
 app = FastAPI()
 
@@ -43,8 +44,16 @@ async def health_check():
         "ghostscript_path": gs_path
     }
 
+def cleanup_temp_dir(temp_dir: Path):
+    """Background task to clean up temporary directory"""
+    try:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+    except:
+        pass
+
 @app.post("/process")
 async def process_pdfs(
+    background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
     max_size_mb: float = Form(default=5.0)
 ):
@@ -134,22 +143,28 @@ async def process_pdfs(
         if not compressed_path.exists():
             return {"error": "Failed to compress PDF"}
         
-        # Return compressed PDF as file response
-        return FileResponse(
-            path=str(compressed_path),
+        # Read the compressed PDF into memory
+        with open(compressed_path, 'rb') as f:
+            pdf_content = f.read()
+        
+        # Schedule cleanup for after response is sent
+        background_tasks.add_task(cleanup_temp_dir, temp_dir)
+        
+        # Return the PDF as a streaming response
+        return StreamingResponse(
+            io.BytesIO(pdf_content),
             media_type="application/pdf",
-            filename="compressed.pdf",
             headers={
-                "Content-Disposition": "attachment; filename=compressed.pdf"
+                "Content-Disposition": "attachment; filename=compressed.pdf",
+                "Content-Length": str(len(pdf_content))
             }
         )
         
     except subprocess.CalledProcessError as e:
+        # Clean up on error
+        shutil.rmtree(temp_dir, ignore_errors=True)
         return {"error": f"PDF compression failed: {str(e)}"}
     except Exception as e:
+        # Clean up on error
+        shutil.rmtree(temp_dir, ignore_errors=True)
         return {"error": f"An error occurred: {str(e)}"}
-    finally:
-        # Clean up temp files after response is sent
-        import atexit
-        import shutil
-        atexit.register(lambda: shutil.rmtree(temp_dir, ignore_errors=True))
