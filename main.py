@@ -87,8 +87,9 @@ async def process_pdfs(
         
         # Function to compress with specific quality setting
         def compress_pdf(input_path, output_path, quality):
-            # Use full path to gs
-            gs_path = "/opt/homebrew/bin/gs"
+            # Try to find gs in different locations
+            import shutil
+            gs_path = shutil.which("gs") or shutil.which("ghostscript") or "/usr/bin/gs"
             cmd = [
                 gs_path,
                 "-sDEVICE=pdfwrite",
