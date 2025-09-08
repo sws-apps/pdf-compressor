@@ -12,6 +12,10 @@ import shutil
 
 app = FastAPI()
 
+# Mount static files if directory exists
+if os.path.exists("static"):
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,8 +26,11 @@ app.add_middleware(
 
 @app.get("/")
 async def serve_index():
-    with open("static/index.html", "r") as f:
-        return HTMLResponse(content=f.read())
+    try:
+        with open("static/index.html", "r") as f:
+            return HTMLResponse(content=f.read())
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>PDF Compressor API is running</h1><p>Static files not found. Please check deployment.</p>")
 
 @app.get("/health")
 async def health_check():
