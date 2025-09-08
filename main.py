@@ -55,8 +55,13 @@ def cleanup_temp_dir(temp_dir: Path):
 async def process_pdfs(
     background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
-    max_size_mb: float = Form(default=5.0)
+    max_size_mb: float = Form(default=2.0)
 ):
+    # Enforce maximum size limit of 5MB
+    if max_size_mb > 5.0:
+        max_size_mb = 5.0
+    elif max_size_mb < 0.1:
+        max_size_mb = 0.1
     if not files:
         return {"error": "No files provided"}
     
