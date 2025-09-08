@@ -22,5 +22,8 @@ COPY static/ ./static/
 # Expose port (Railway/Heroku will override with $PORT)
 EXPOSE 8080
 
+# Copy run script
+COPY run.py .
+
 # Start the application
-CMD uvicorn main:app --host 0.0.0.0 --port $PORT
+CMD ["python", "run.py"]
