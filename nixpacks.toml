@@ -1,5 +1,0 @@
-[phases.setup]
-nixPkgs = ["...", "ghostscript"]
-
-[start]
-cmd = "python run.py"
